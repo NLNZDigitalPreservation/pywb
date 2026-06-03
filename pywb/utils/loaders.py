@@ -33,6 +33,18 @@ try:
 except ImportError:  # pragma: no cover
     s3_avail = False
 
+try:
+    from azure.storage.blob import BlobServiceClient
+    from azure.core.credentials import AzureNamedKeyCredential, AzureSasCredential
+    from azure.identity import (
+        ClientSecretCredential,
+        DefaultAzureCredential,
+        ManagedIdentityCredential,
+    )
+    azure_blob_avail = True
+except ImportError:  # pragma: no cover
+    azure_blob_avail = False
+
 
 # ============================================================================
 def init_yaml_env_vars():
@@ -247,6 +259,7 @@ class BlockLoader(BaseLoader):
         BlockLoader.loaders['http'] = HttpLoader
         BlockLoader.loaders['https'] = HttpLoader
         BlockLoader.loaders['s3'] = S3Loader
+        BlockLoader.loaders['azblob'] = AzureBlobLoader
         BlockLoader.loaders['file'] = LocalFileLoader
         BlockLoader.loaders['pkg'] = PackageLoader
         BlockLoader.loaders['webhdfs'] = WebHDFSLoader
@@ -430,6 +443,169 @@ class S3Loader(BaseLoader):
         return obj['Body']
 
 
+# ============================================================================
+class AzureBlobLoader(BaseLoader):
+
+    DEFAULT_SUFFIX = 'blob.core.windows.net'
+
+    def __init__(self, **kwargs):
+        super(AzureBlobLoader, self).__init__()
+
+        self.clients = {}
+
+        self.auth = kwargs.get('azure_auth')
+        self.account_key = kwargs.get('azure_account_key')
+        self.sas_token = kwargs.get('azure_sas_token')
+        self.tenant_id = kwargs.get('azure_tenant_id')
+        self.client_id = kwargs.get('azure_client_id')
+        self.client_secret = kwargs.get('azure_client_secret')
+        self.managed_identity_client_id = kwargs.get('azure_managed_identity_client_id')
+        self.account_url = kwargs.get('azure_account_url')
+        self.endpoint_suffix = kwargs.get('azure_endpoint_suffix')
+
+    def load(self, url, offset=0, length=-1):
+        if not azure_blob_avail:  # pragma: no cover
+            raise IOError(
+                'To load from Azure Blob paths, you must install Azure SDKs: '
+                'pip install azure-storage-blob azure-identity'
+            )
+
+        parts = urlsplit(url)
+
+        account_name = parts.netloc
+        path = parts.path[1:]
+
+        if not account_name:
+            raise IOError('Azure Blob URL must include storage account name')
+
+        path_parts = path.split('/', 1)
+        if len(path_parts) != 2:
+            raise IOError(
+                'Azure Blob URL must be of the form '
+                'azure://<account>/<container>/<blob>'
+            )
+
+        container_name, blob_name = path_parts
+
+        # SAS can be supplied in the URI query string.
+        sas_from_url = parts.query or None
+
+        client = self._get_client(account_name, sas_from_url)
+
+        blob_client = client.get_blob_client(
+            container=container_name,
+            blob=blob_name
+        )
+
+        if length is not None and length >= 0:
+            downloader = blob_client.download_blob(offset=offset, length=length)
+        elif offset:
+            downloader = blob_client.download_blob(offset=offset)
+        else:
+            downloader = blob_client.download_blob()
+
+        return AzureBlobIteratorReader(downloader.chunks())
+
+    def _get_client(self, account_name, sas_from_url=None):
+        auth = self._resolve_auth()
+
+        # Cache per account/auth/SAS. SAS in URL may vary by request.
+        cache_key = (account_name, auth, sas_from_url)
+        client = self.clients.get(cache_key)
+        if client:
+            return client
+
+        account_url = self._make_account_url(account_name)
+
+        credential = self._make_credential(account_name, auth, sas_from_url)
+
+        client = BlobServiceClient(
+            account_url=account_url,
+            credential=credential
+        )
+
+        self.clients[cache_key] = client
+        return client
+
+    def _make_account_url(self, account_name):
+        if self.account_url:
+            return self.account_url
+
+        return 'https://{0}.{1}'.format(account_name, self.endpoint_suffix)
+    
+    def _resolve_auth(self):
+        if not self.auth:
+            raise IOError(
+                'Azure Blob auth requires azure_auth to be set. '
+                'Valid values are: access_key, sas, service_principal, '
+                'managed_identity, default, anonymous'
+            )
+
+        return self.auth
+
+    def _make_credential(self, account_name, auth, sas_from_url=None):
+        auth = auth.lower()
+
+        valid_auth_options = ('access_key', 'sas', 'service_principal', 'managed_identity', 'default', 'anonymous')
+
+        if auth not in valid_auth_options:
+            raise IOError(
+                'Invalid Azure Blob auth type: {0}. '
+                'Valid values are: {1}'.format(
+                    auth,
+                    ', '.join(valid_auth_options)
+                )
+            )
+
+        if auth == 'anonymous':
+            return None
+
+        if auth == 'access_key':
+            if not self.account_key:
+                raise IOError('Azure Blob access key auth requires azure_account_key')
+            return AzureNamedKeyCredential(account_name, self.account_key)
+
+        if auth == 'sas':
+            sas = sas_from_url or self.sas_token
+            if not sas:
+                raise IOError('Azure Blob SAS auth requires azure_sas_token or URL query SAS')
+
+            # AzureSasCredential expects the raw token without leading '?'.
+            if sas.startswith('?'):
+                sas = sas[1:]
+
+            return AzureSasCredential(sas)
+
+        if auth == 'service_principal':
+            if not (self.tenant_id and self.client_id and self.client_secret):
+                raise IOError(
+                    'Azure Blob service principal auth requires '
+                    'azure_tenant_id, azure_client_id, and azure_client_secret'
+                )
+
+            return ClientSecretCredential(
+                tenant_id=self.tenant_id,
+                client_id=self.client_id,
+                client_secret=self.client_secret
+            )
+
+        if auth == 'managed_identity':
+            if self.managed_identity_client_id:
+                return ManagedIdentityCredential(
+                    client_id=self.managed_identity_client_id
+                )
+
+            return ManagedIdentityCredential()
+
+        if auth == 'default':
+            kwargs = {}
+
+            if self.managed_identity_client_id:
+                kwargs['managed_identity_client_id'] = self.managed_identity_client_id
+
+            return DefaultAzureCredential(**kwargs)
+        
+
 # =================================================================
 class WebHDFSLoader(HttpLoader):
     """Loader class specifically for loading webhdfs content"""
@@ -502,6 +678,42 @@ class HMACCookieMaker(object):
 
         return cookie
 
+
+# =================================================================
+# Wrapper for Azure StorageStreamDownloader
+# =================================================================
+
+class AzureBlobIteratorReader(object):
+    """A minimal file-like reader over an iterator of byte chunks."""
+
+    def __init__(self, iterator):
+        self.iterator = iterator
+        self.buff = b''
+        self.closed = False
+
+    def read(self, size=-1):
+        if self.closed:
+            return b''
+
+        if size is None or size < 0:
+            chunks = [self.buff]
+            self.buff = b''
+            chunks.extend(self.iterator)
+            return b''.join(chunks)
+
+        while len(self.buff) < size:
+            try:
+                self.buff += next(self.iterator)
+            except StopIteration:
+                break
+
+        result = self.buff[:size]
+        self.buff = self.buff[size:]
+        return result
+
+    def close(self):
+        self.closed = True
+        self.buff = b''
 
 # ============================================================================
 BlockLoader.init_default_loaders()
