@@ -259,7 +259,7 @@ class BlockLoader(BaseLoader):
         BlockLoader.loaders['http'] = HttpLoader
         BlockLoader.loaders['https'] = HttpLoader
         BlockLoader.loaders['s3'] = S3Loader
-        BlockLoader.loaders['azblob'] = AzureBlobLoader
+        BlockLoader.loaders['azure'] = AzureBlobLoader
         BlockLoader.loaders['file'] = LocalFileLoader
         BlockLoader.loaders['pkg'] = PackageLoader
         BlockLoader.loaders['webhdfs'] = WebHDFSLoader
