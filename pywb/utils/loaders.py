@@ -454,15 +454,15 @@ class AzureBlobLoader(BaseLoader):
         self.clients = {}
 
         config = load_yaml_config('./config.yaml')
-        self.auth = config['azure_auth']
-        self.account_key = config['azure_account_key']
-        self.sas_token = config['azure_sas_token']
-        self.tenant_id = config['azure_tenant_id']
-        self.client_id = config['azure_client_id']
-        self.client_secret = config['azure_client_secret']
-        self.managed_identity_client_id = config['azure_managed_identity_client_id']
-        self.account_url = config['azure_account_url']
-        self.endpoint_suffix = config['azure_endpoint_suffix']
+        self.auth = config.get('azure_auth')
+        self.account_key = config.get('azure_account_key')
+        self.sas_token = config.get('azure_sas_token')
+        self.tenant_id = config.get('azure_tenant_id')
+        self.client_id = config.get('azure_client_id')
+        self.client_secret = config.get('azure_client_secret')
+        self.managed_identity_client_id = config.get('azure_managed_identity_client_id')
+        self.account_url = config.get('azure_account_url')
+        self.endpoint_suffix = config.get('azure_endpoint_suffix')
 
     def load(self, url, offset=0, length=-1):
         if not azure_blob_avail:  # pragma: no cover
