@@ -462,7 +462,7 @@ class AzureBlobLoader(BaseLoader):
         self.client_secret = config.get('azure_client_secret')
         self.managed_identity_client_id = config.get('azure_managed_identity_client_id')
         self.account_url = config.get('azure_account_url')
-        self.endpoint_suffix = config.get('azure_endpoint_suffix')
+        self.endpoint_suffix = (config.get('azure_endpoint_suffix') or self.DEFAULT_SUFFIX)
 
     def load(self, url, offset=0, length=-1):
         if not azure_blob_avail:  # pragma: no cover
