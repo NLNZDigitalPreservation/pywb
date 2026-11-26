@@ -90,6 +90,9 @@ from pywb.utils.loaders import read_last_line
 from pywb.utils.canonicalize import canonicalize
 
 from mock import patch
+from unittest.mock import Mock
+
+import pywb.utils.loaders as loaders
 
 from warcio.bufferedreaders import DecompressingBufferedReader
 
@@ -209,6 +212,315 @@ collection:
 
 def print_str(string):
     return string.decode('utf-8')
+
+
+########################
+# AzureBlobLoader tests
+########################
+
+def make_azure_loader(monkeypatch, config=None):
+    """Build an AzureBlobLoader using a controlled config.yaml result."""
+    if config is None:
+        config = {}
+
+    monkeypatch.setattr(loaders, 'load_yaml_config', lambda _filename: config)
+    return loaders.AzureBlobLoader()
+
+
+@pytest.fixture
+def azure_sdk(monkeypatch):
+    """Mock Azure SDK symbols, including when the optional SDK is absent."""
+    sdk_mocks = {
+        'BlobServiceClient': Mock(name='BlobServiceClient'),
+        'AzureNamedKeyCredential': Mock(name='AzureNamedKeyCredential'),
+        'AzureSasCredential': Mock(name='AzureSasCredential'),
+        'ClientSecretCredential': Mock(name='ClientSecretCredential'),
+        'ManagedIdentityCredential': Mock(name='ManagedIdentityCredential'),
+        'DefaultAzureCredential': Mock(name='DefaultAzureCredential'),
+    }
+
+    for name, mock_obj in sdk_mocks.items():
+        # raising=False also supports test environments without Azure SDKs,
+        # where these names are not defined by pywb.utils.loaders.
+        monkeypatch.setattr(loaders, name, mock_obj, raising=False)
+
+    monkeypatch.setattr(loaders, 'azure_blob_avail', True)
+    return sdk_mocks
+
+
+class TestAzureBlobLoader:
+    def test_load_full_blob(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'anonymous'})
+        service_client = Mock(name='service_client')
+        azure_sdk['BlobServiceClient'].return_value = service_client
+        blob_client = service_client.get_blob_client.return_value
+        blob_client.download_blob.return_value.chunks.return_value = iter(
+            [b'hello ', b'azure ', b'blob']
+        )
+
+        reader = loader.load('azure://mystorage/warcs/example.warc.gz')
+
+        assert reader.read() == b'hello azure blob'
+        azure_sdk['BlobServiceClient'].assert_called_once_with(
+            account_url='https://mystorage.blob.core.windows.net',
+            credential=None,
+        )
+        service_client.get_blob_client.assert_called_once_with(
+            container='warcs', blob='example.warc.gz'
+        )
+        blob_client.download_blob.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        ('offset', 'length', 'expected_download_args'),
+        [
+            (0, -1, {}),
+            (128, -1, {'offset': 128}),
+            (128, 64, {'offset': 128, 'length': 64}),
+            (0, None, {}),
+        ],
+    )
+    def test_load_blob_with_range(
+        self, monkeypatch, azure_sdk, offset, length, expected_download_args
+    ):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'anonymous'})
+        service_client = Mock(name='service_client')
+        azure_sdk['BlobServiceClient'].return_value = service_client
+        blob_client = service_client.get_blob_client.return_value
+        blob_client.download_blob.return_value.chunks.return_value = iter([b'data'])
+
+        reader = loader.load(
+            'azure://mystorage/warcs/example.warc.gz',
+            offset=offset,
+            length=length,
+        )
+
+        assert reader.read() == b'data'
+        blob_client.download_blob.assert_called_once_with(**expected_download_args)
+
+    def test_blob_name_can_contain_nested_path(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'anonymous'})
+        service_client = Mock(name='service_client')
+        azure_sdk['BlobServiceClient'].return_value = service_client
+
+        loader.load('azure://mystorage/warcs/2024/01/example.warc.gz')
+
+        service_client.get_blob_client.assert_called_once_with(
+            container='warcs', blob='2024/01/example.warc.gz'
+        )
+
+    def test_account_url_can_be_overridden(self, monkeypatch, azure_sdk):
+        custom_url = 'https://custom-storage.example.test'
+        loader = make_azure_loader(
+            monkeypatch,
+            {'azure_auth': 'anonymous', 'azure_account_url': custom_url},
+        )
+
+        loader.load('azure://mystorage/container/blob')
+
+        azure_sdk['BlobServiceClient'].assert_called_once_with(
+            account_url=custom_url, credential=None
+        )
+
+    def test_access_key_auth(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(
+            monkeypatch, {'azure_account_key': 'storage-account-key'}
+        )
+
+        credential = loader._make_credential('mystorage', 'access_key')
+
+        azure_sdk['AzureNamedKeyCredential'].assert_called_once_with(
+            'mystorage', 'storage-account-key'
+        )
+        assert credential is azure_sdk['AzureNamedKeyCredential'].return_value
+
+    def test_sas_auth_uses_configured_token_and_strips_question_mark(
+        self, monkeypatch, azure_sdk
+    ):
+        loader = make_azure_loader(
+            monkeypatch, {'azure_sas_token': '?sv=configured&sig=secret'}
+        )
+
+        credential = loader._make_credential('mystorage', 'sas')
+
+        azure_sdk['AzureSasCredential'].assert_called_once_with(
+            'sv=configured&sig=secret'
+        )
+        assert credential is azure_sdk['AzureSasCredential'].return_value
+
+    def test_sas_in_url_takes_precedence_over_configured_token(
+        self, monkeypatch, azure_sdk
+    ):
+        loader = make_azure_loader(
+            monkeypatch,
+            {'azure_auth': 'sas', 'azure_sas_token': 'configured-token'},
+        )
+        service_client = Mock(name='service_client')
+        azure_sdk['BlobServiceClient'].return_value = service_client
+
+        loader.load(
+            'azure://mystorage/container/blob?sv=url-token&sig=url-signature'
+        )
+
+        azure_sdk['AzureSasCredential'].assert_called_once_with(
+            'sv=url-token&sig=url-signature'
+        )
+        azure_sdk['BlobServiceClient'].assert_called_once_with(
+            account_url='https://mystorage.blob.core.windows.net',
+            credential=azure_sdk['AzureSasCredential'].return_value,
+        )
+
+    def test_service_principal_auth(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(
+            monkeypatch,
+            {
+                'azure_tenant_id': 'tenant-id',
+                'azure_client_id': 'client-id',
+                'azure_client_secret': 'client-secret',
+            },
+        )
+
+        credential = loader._make_credential('mystorage', 'service_principal')
+
+        azure_sdk['ClientSecretCredential'].assert_called_once_with(
+            tenant_id='tenant-id',
+            client_id='client-id',
+            client_secret='client-secret',
+        )
+        assert credential is azure_sdk['ClientSecretCredential'].return_value
+
+    @pytest.mark.parametrize(
+        ('managed_identity_client_id', 'expected_args'),
+        [
+            ('user-assigned-client-id', {'client_id': 'user-assigned-client-id'}),
+            (None, {}),
+        ],
+    )
+    def test_managed_identity_auth(
+        self, monkeypatch, azure_sdk, managed_identity_client_id, expected_args
+    ):
+        loader = make_azure_loader(
+            monkeypatch,
+            {'azure_managed_identity_client_id': managed_identity_client_id},
+        )
+
+        credential = loader._make_credential('mystorage', 'managed_identity')
+
+        azure_sdk['ManagedIdentityCredential'].assert_called_once_with(
+            **expected_args
+        )
+        assert credential is azure_sdk['ManagedIdentityCredential'].return_value
+
+    @pytest.mark.parametrize(
+        ('managed_identity_client_id', 'expected_args'),
+        [
+            (
+                'user-assigned-client-id',
+                {'managed_identity_client_id': 'user-assigned-client-id'},
+            ),
+            (None, {}),
+        ],
+    )
+    def test_default_auth(
+        self, monkeypatch, azure_sdk, managed_identity_client_id, expected_args
+    ):
+        loader = make_azure_loader(
+            monkeypatch,
+            {'azure_managed_identity_client_id': managed_identity_client_id},
+        )
+
+        credential = loader._make_credential('mystorage', 'default')
+
+        azure_sdk['DefaultAzureCredential'].assert_called_once_with(
+            **expected_args
+        )
+        assert credential is azure_sdk['DefaultAzureCredential'].return_value
+
+    def test_anonymous_auth_returns_no_credential(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch)
+
+        assert loader._make_credential('mystorage', 'anonymous') is None
+
+    def test_client_is_cached_for_same_account_and_sas(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'sas'})
+        clients = [Mock(name='client1'), Mock(name='client2'), Mock(name='client3')]
+        azure_sdk['BlobServiceClient'].side_effect = clients
+
+        first_client = loader._get_client('mystorage', 'sv=one')
+        cached_client = loader._get_client('mystorage', 'sv=one')
+        second_sas_client = loader._get_client('mystorage', 'sv=two')
+        second_account_client = loader._get_client('anotherstorage', 'sv=one')
+
+        assert first_client is cached_client
+        assert second_sas_client is not first_client
+        assert second_account_client is not first_client
+        assert azure_sdk['BlobServiceClient'].call_count == 3
+
+    def test_missing_auth_configuration_raises(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch)
+
+        with pytest.raises(IOError, match='azure_auth to be set'):
+            loader.load('azure://mystorage/container/blob')
+
+    def test_invalid_auth_type_raises(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'unknown'})
+
+        with pytest.raises(IOError, match='Invalid Azure Blob auth type'):
+            loader.load('azure://mystorage/container/blob')
+
+    def test_access_key_auth_requires_key(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'access_key'})
+
+        with pytest.raises(IOError, match='azure_account_key'):
+            loader.load('azure://mystorage/container/blob')
+
+    def test_sas_auth_requires_token(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'sas'})
+
+        with pytest.raises(IOError, match='azure_sas_token'):
+            loader.load('azure://mystorage/container/blob')
+
+    def test_service_principal_requires_all_credentials(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(
+            monkeypatch,
+            {
+                'azure_auth': 'service_principal',
+                'azure_tenant_id': 'tenant-id',
+                'azure_client_id': 'client-id',
+                # client secret intentionally omitted
+            },
+        )
+
+        with pytest.raises(IOError, match='azure_tenant_id, azure_client_id'):
+            loader.load('azure://mystorage/container/blob')
+
+    def test_url_must_include_storage_account(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'anonymous'})
+
+        with pytest.raises(IOError, match='include storage account name'):
+            loader.load('azure:///container/blob')
+
+    def test_url_must_include_container_and_blob(self, monkeypatch, azure_sdk):
+        loader = make_azure_loader(monkeypatch, {'azure_auth': 'anonymous'})
+
+        with pytest.raises(IOError, match='<container>/<blob>'):
+            loader.load('azure://mystorage/container-only')
+
+
+class TestAzureBlobIteratorReader:
+    def test_read_in_sizes_across_chunk_boundaries(self):
+        reader = loaders.AzureBlobIteratorReader(iter([b'abc', b'def', b'gh']))
+
+        assert reader.read(2) == b'ab'
+        assert reader.read(3) == b'cde'
+        assert reader.read(1) == b'f'
+        assert reader.read() == b'gh'
+        assert reader.read() == b''
+
+    def test_read_larger_than_remaining_data(self):
+        reader = loaders.AzureBlobIteratorReader(iter([b'abc', b'def']))
+
+        assert reader.read(20) == b'abcdef'
+        assert reader.read(1) == b''
 
 
 if __name__ == "__main__":
