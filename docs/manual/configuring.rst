@@ -1,14 +1,15 @@
 .. _configuring-pywb:
 
+############################
 Configuring the Web Archive
-===========================
+############################
 
 pywb offers an extensible YAML based configuration format via a main ``config.yaml`` at the root of each web archive.
 
 .. _framed_vs_frameless:
 
 Framed vs Frameless Replay
---------------------------
+==========================
 
 pywb supports several modes for serving archived web content.
 
@@ -47,7 +48,7 @@ Note: pywb also supports HTTP/S **proxy mode** which requires additional setup. 
 .. _client_side_replay:
 
 Client-side replay
-------------------
+==================
 
 In pywb 2.9.0+, client-side replay can optionally be enabled for framed replay.
 
@@ -61,7 +62,7 @@ In this mode, pywb will use the `wabac.js <https://github.com/webrecorder/wabac.
 .. _dir_structure:
 
 Directory Structure
--------------------
+===================
 
 The pywb system is designed to automatically access and manage web archive collections that follow a defined directory structure.
 The directory structure can be fully customized and "special" collections can be defined outside the structure as well.
@@ -113,14 +114,14 @@ The following are some of the implicit default settings which can be customized:
 (For a complete list of defaults, see the ``pywb/default_config.yaml`` file for reference)
 
 Index Paths
-^^^^^^^^^^^
+-----------
 
 The ``index_paths`` key defines the subdirectory for index files (usually CDXJ) and determine the contents of each archive collection.
 
 The index files usually contain a pointer to a WARC file, but not the absolute path.
 
 Archive Paths
-^^^^^^^^^^^^^
+-------------
 
 The ``archive_paths`` key indicates how pywb will resolve WARC files listed in the index.
 
@@ -137,21 +138,21 @@ When resolving a ``example.warc.gz``, pywb will then check (in order):
 
 
 Access Controls
-^^^^^^^^^^^^^^^
+---------------
 
 With pywb 2.4, pywb includes an extensible :ref:`access-control` system.
 By default, the access control files are stored in ``acl`` directory of each collection.
 
 
 UI Customizations
-^^^^^^^^^^^^^^^^^
+-----------------
 
 The  ``templates`` directory supports custom Jinja templates to allow customizing the UI.
 See :ref:`ui-customizations` for more details on available options.
 
 
 Special and Custom Collections
-------------------------------
+==============================
 
 While pywb can detect automatically collections following the above directory structure,
 it also provides the option to fully declare :ref:`custom-coll` explicitly.
@@ -163,7 +164,7 @@ All custom defined collections are placed under the ``collections`` key in ``con
 .. _live-web:
 
 Live Web Collection
-^^^^^^^^^^^^^^^^^^^
+-------------------
 
 The live web collection proxies all data to the live web, and can be defined as follows::
 
@@ -178,7 +179,7 @@ This collection can be useful for testing, or even more powerful, when combined 
 
 
 SOCKS Proxy for Live Web
-""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 pywb can be configured to use a SOCKS5 proxy when connecting to the live web. This allows pywb to be used with `Tor <https://torproject.org/>`_ and other
 services that require a SOCKS proxy.
@@ -190,7 +191,7 @@ Note that, at this time, it is not possible to configure a SOCKS proxy per pywb 
 .. _live-url-filter:
 
 Filtering Live Web Requests
-"""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When pywb is publicly accessible with a live web collection (or recording from the live web), any user can make pywb request
 any url, including urls on hosts only reachable from the pywb server, eg. internal services on a private network.
@@ -231,7 +232,7 @@ addresses (eg. cloud metadata endpoints) with egress firewall rules on the pywb 
 .. _auto-all:
 
 Auto "All" Aggregate Collection
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------
 
 The aggregate all collections automatically aggregates data from all collections in the ``collections`` directory::
 
@@ -243,7 +244,7 @@ Accessing ``/all/<url>`` will cause an aggregate lookup within the collections d
 Note: It is not (yet) possible to exclude collections from the auto-all collection, although "special" collections are not included.
 
 Collection Provenance
-"""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^
 
 When using the auto-all collection, it is possible to determine the original collection of each resource by looking at the ``Link`` header metadata
 if :ref:`memento-api` is enabled. The header will include the extra ``collection`` field, specifying the collection::
@@ -262,7 +263,7 @@ For example, if two collections ``coll-1`` and ``coll-2`` contain ``http://examp
 
 
 Remote Memento Collection
-^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 It's also possible to define remote archives as easily as location collections.
 For example, the following defines a collection ``/ia/`` which accesses
@@ -278,7 +279,7 @@ using the Warcserver configuration syntax. See :ref:`warcserver-config` for more
 .. _custom-coll:
 
 Custom User-Defined Collections
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------
 
 The collection definition syntax allows for explicitly setting the index, archive paths
 and all other templates, per collection, for example::
@@ -295,7 +296,7 @@ However, this configuration allows for using pywb with existing collections that
 
 
 Root Collection
-^^^^^^^^^^^^^^^
+---------------
 
 It is also possible to define a "root" collection, for example, accessible at ``http://my-archive.example.com/<url>``
 Such a collection must be defined explicitly using the ``$root`` as collection name::
@@ -311,7 +312,7 @@ Note: When a root collection is set, no other collections are currently accessib
 .. _recording-mode:
 
 Recording Mode
---------------
+==============
 
 Recording mode enables pywb to support recording into any automatically managed collection, using
 the ``/<coll>/record/<url>`` path. Accessing this path will result in pywb writing new WARCs directly into 
@@ -362,7 +363,7 @@ As a shortcut, ``recorder: live`` can also be used to specify only the ``source_
 
 
 Dedup Options for Recording
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+---------------------------
 
 By default, recording mode will record every URL.
 
@@ -398,7 +399,7 @@ For example, the following will enable ``revisit`` records to be written using t
 
 
 Instant Replay (experimental)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-----------------------------
 
 Starting with pywb 2.5.0, when the ``dedup_policy`` is set, pywb can do 'instant replay' after recording, without having to regenerate the CDX or waiting for it to be updated with auto-indexing.
 
@@ -410,7 +411,7 @@ This feature is still experimental but should generally work. Additional options
 .. _put-custom-record:
 
 Adding Custom Resource Records
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 pywb now also supports adding custom data to a WARC ``resource`` record. This can be used to add custom resources, such as screenshots, logs, error messages,
 etc.. that are not normally captured as part of recording, but still useful to store in WARCs.
@@ -428,7 +429,7 @@ This feature is only available if ``enable_put_custom_record: true`` is set in t
 .. _auto-fetch:
 
 Auto-Fetch Responsive Recording
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------------
 
 When recording (or browsing the 'live' collection), pywb has an option to inspect and automatically fetch additional resources, including:
 
@@ -446,7 +447,7 @@ The auto-fetch system is provided as part of the :ref:`wombat`
 
 
 Auto-Indexing Mode
-------------------
+==================
 
 If auto-indexing is enabled, pywb will update the indexes stored in the ``indexes`` directory whenever files are added or modified in the
 ``archive`` directory. Auto-indexing can be enabled via the ``autoindex`` option set to the check interval in seconds::
@@ -473,7 +474,7 @@ The auto-indexing mode can also be enabled via command-line by running ``wayback
 .. _wombat:
 
 Client-Side Rewriting System (wombat.js)
-----------------------------------------
+========================================
 
 In addition to server-side rewriting, pywb includes a Javascript client-rewriting system.
 
@@ -490,7 +491,7 @@ For more information on wombat.js and client-side rewriting, see the `wombat REA
 .. _https-proxy:
 
 HTTP/S Proxy Mode
------------------
+=================
 
 In addition to "url rewriting prefix mode" (the default), pywb can also act as a full-fledged HTTP and HTTPS proxy, allowing
 any browser or client supporting HTTP and HTTPS proxy to access web archives through the proxy.
@@ -500,7 +501,7 @@ the user enters ``http://example.com/`` and is served content from the ``my-coll
 As a result, the collection and timestamp must be specified separately.
 
 Configuring HTTP Proxy
-^^^^^^^^^^^^^^^^^^^^^^
+----------------------
 
 At this time, pywb requires the collection to be configured at setup time (though collection switching will be added soon).
 
@@ -513,7 +514,7 @@ For HTTP proxy access, this is all that is needed to use the proxy. If pywb is r
 
 
 Default Timestamp
-^^^^^^^^^^^^^^^^^
+-----------------
 
 The timestamp can also be optionally specified by running: ``wayback --proxy my-coll --proxy-default-timestamp 20181226010203`` or by specifying the config::
 
@@ -529,7 +530,7 @@ The timestamp can also be dynamically overriden per-request using the :ref:`meme
 
 
 Proxy Mode Rewriting
-^^^^^^^^^^^^^^^^^^^^
+--------------------
 
 By default, pywb performs minimal html rewriting to insert a default banner into the proxy mode replay to make it clear to users that they are viewing replayed content.
 
@@ -574,7 +575,7 @@ To disable all content rewriting::
 
 
 Proxy Recording
-^^^^^^^^^^^^^^^
+---------------
 
 The proxy can additional be set to recording mode, equivalent to access the ``/<my-coll>/record/`` path,
 by adding ``recording: true``, as follows::
@@ -589,7 +590,7 @@ See :ref:`recording-mode` for full set of configurable recording options.
 
 
 HTTPS Proxy and pywb Certificate Authority
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------------
 
 For HTTPS proxy access, pywb provides its own Certificate Authority and dynamically generates certificates for each host and signs the responses
 with these certificates. By design, this allows pywb to act as "man-in-the-middle" serving archived copies of a given site.
@@ -639,12 +640,12 @@ For more information on custom certificate authority (CA) installation, the `mit
 
 
 Compatibility: Redirects, Memento, Flash video overrides
---------------------------------------------------------
+========================================================
 
 .. _redirect-to-exact:
 
 Exact Timestamp Redirects
-^^^^^^^^^^^^^^^^^^^^^^^^^
+-------------------------
 
 By default, pywb does not redirect urls to the 'canonical' representation of a url with the exact timestamp.
 
@@ -668,7 +669,7 @@ When running with uWSGI, the :ref:`index-cache` avoids the second read.
 .. _index-cache:
 
 Index Cache (uWSGI)
-^^^^^^^^^^^^^^^^^^^
+-------------------
 
 When pywb runs in `uWSGI <https://uwsgi-docs.readthedocs.io/>`_, the captures read from the index for a url can be kept for a short time
 in a `uWSGI cache <https://uwsgi-docs.readthedocs.io/en/latest/Caching.html>`_, shared by all the uWSGI workers.
@@ -720,7 +721,7 @@ The captures are stored with Python's ``pickle`` module, so the uWSGI cache must
 The uWSGI stats server (eg. ``stats = 127.0.0.1:1717`` with ``uwsgitop``) shows the items, hits, misses and full counters of the cache.
 
 Custom Index Cache
-""""""""""""""""""
+^^^^^^^^^^^^^^^^^^
 
 Other stores can be used by setting ``class`` to a ``module:Class`` subclass of :class:`pywb.warcserver.index.indexcache.IndexCache`
 that implements ``get(key)`` and ``set(key, value)``. Its config is the ``index_cache`` dict::
@@ -731,7 +732,7 @@ that implements ``get(key)`` and ``set(key, value)``. Its config is the ``index_
 
 
 Memento Protocol
-^^^^^^^^^^^^^^^^
+----------------
 
 :ref:`memento-api` support is enabled by default, and works with no-timestamp-redirect and classic redirect behaviors.
 
@@ -741,7 +742,7 @@ However, Memento API support can be disabled by adding::
 
 
 Flash Video Override
-^^^^^^^^^^^^^^^^^^^^
+--------------------
 
 A custom system to override Flash video with a custom download via ``youtube-dl`` and replay with a custom player was enabled in previous versions of pywb.
 However, this system was not widely used and is in need of improvements, and was designed when most video was Flash-based.
@@ -756,7 +757,7 @@ To enable the previous behavior, add to config::
 The system may be revamped in the future and enabled by default, but for now, it is provided "as-is" for compatibility reasons.
 
 Verify SSL-Certificates
------------------------
+=======================
 
 By default, SSL-Certificates of websites are not verified. To enable verification, add the following to the config::
 
@@ -768,7 +769,7 @@ By default, SSL-Certificates of websites are not verified. To enable verificatio
 If omitted, the default system CA used by Python is used.
 
 Injecting Scripts
------------------
+=================
 
 Extra JavaScript files can be injected into replayed pages. This can be useful for emulating removed browser features
 or applying compatibility tweaks.
