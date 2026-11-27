@@ -794,3 +794,134 @@ Injected scripts can also be configured per collection::
       inject_scripts:
         - all.js                # static/all.js
         - _/mycoll/tweaks.js    # collections/mycoll/static/tweaks.js
+
+
+
+Remote Archive Storage
+==========================
+
+S3 Loader
+-----------------
+
+TODO
+
+Azure Blob Loader
+-----------------
+
+To use the loader, specify an Azure Blob URL in an archive path. The URL format is::
+
+    azure://<storage-account>/<container>/<blob>
+
+For collections using pywb's default directory structure, add the Azure
+location to the top-level ``archive_paths`` setting::
+
+    archive_paths:
+      - azure://mystorage/warcs
+
+In the example above, ``warcs`` is the container. Any archive filename and subdirectory appended by 
+pywb is treated as the blob path within that container. A complete blob URL can also include a SAS 
+token as a query string when using SAS authentication; see `SAS Authentication`_ below.
+
+Azure SDK dependencies
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Azure Blob Loader requires the Azure Storage Blob and Azure Identity packages. Install them with::
+
+    pip install azure-storage-blob azure-identity
+
+Authentication Configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Azure authentication is configured in ``config.yaml``. Set ``azure_auth`` to one of the supported authentication methods. The
+additional configuration values depend on the selected method.
+
+Access Key Authentication
+"""""""""""""""""""""""""""""""""
+
+Use an Azure Storage account key with ``access_key`` authentication::
+
+    azure_auth: access_key
+    azure_account_key: ${AZURE_STORAGE_KEY}
+
+The storage account name is taken from the Azure URL. The account key is provided through ``azure_account_key``.
+
+SAS Authentication
+"""""""""""""""""""""""""""""""""
+
+Use a Shared Access Signature (SAS) token with ``sas`` authentication::
+
+    azure_auth: sas
+    azure_sas_token: ${AZURE_STORAGE_SAS_TOKEN}
+
+The SAS token can instead be supplied in the Azure URL query string::
+
+    azure://mystorage/warcs/example.warc.gz?sv=...&sig=...
+
+A SAS token supplied in the URL takes precedence over the configured ``azure_sas_token``. The token 
+may be configured with or without a leading ``?``.
+
+Service Principal Authentication
+"""""""""""""""""""""""""""""""""
+
+Use a Microsoft Entra ID service principal with ``service_principal``
+authentication::
+
+    azure_auth: service_principal
+    azure_tenant_id: ${AZURE_TENANT_ID}
+    azure_client_id: ${AZURE_CLIENT_ID}
+    azure_client_secret: ${AZURE_CLIENT_SECRET}
+
+All three values are required.
+
+Managed Identity Authentication
+"""""""""""""""""""""""""""""""""
+
+Use ``managed_identity`` to authenticate with the managed identity assigned to the host or workload::
+
+    azure_auth: managed_identity
+
+To select a user-assigned managed identity, provide its client ID::
+
+    azure_auth: managed_identity
+    azure_managed_identity_client_id: ${AZURE_MANAGED_IDENTITY_CLIENT_ID}
+
+If the client ID is omitted, the loader requests the system-assigned managed identity.
+
+Default Credential Authentication
+"""""""""""""""""""""""""""""""""
+
+Use ``default`` to use the Azure Identity ``DefaultAzureCredential`` mechanism::
+
+    azure_auth: default
+
+An optional managed identity client ID can also be supplied::
+
+    azure_auth: default
+    azure_managed_identity_client_id: ${AZURE_MANAGED_IDENTITY_CLIENT_ID}
+
+Anonymous Authentication
+"""""""""""""""""""""""""""""""""
+
+Use ``anonymous`` to access blobs without providing a credential::
+
+    azure_auth: anonymous
+
+The storage account and container must permit the requested anonymous access.
+
+Endpoint Configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+By default, the loader constructs the storage account URL using the standard Azure Blob Storage endpoint suffix::
+
+    https://<storage-account>.blob.core.windows.net
+
+For an Azure environment with a different endpoint suffix, configure ``azure_endpoint_suffix``::
+
+    azure_endpoint_suffix: blob.core.<environment-domain>
+
+Alternatively, ``azure_account_url`` can be used to provide the complete account URL. When set, it is 
+used instead of the URL constructed from the storage account name and endpoint suffix::
+
+    azure_account_url: https://mystorage.example.net
+
+The ``azure_account_url`` setting takes precedence over ``azure_endpoint_suffix``.
